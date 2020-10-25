@@ -116,10 +116,10 @@ public class Card : MonoBehaviour
         cardCanvas.sortingOrder = textLayer;
     }
 
-    public void SetLowerLayer()
+    public void SetLowerLayer(int cardLayer=1, int textLayer=2)
     {
-        cardSprite.sortingOrder = 1;
-        cardCanvas.sortingOrder = 2;
+        cardSprite.sortingOrder = cardLayer;
+        cardCanvas.sortingOrder = textLayer;
     }
 
     public void MoveToPos(Vector3 pos)
@@ -136,9 +136,10 @@ public class Card : MonoBehaviour
         _isFlipDown = false;
         SetLowerLayer();
         cardSprite.sprite = frontSprite;
+        cardText.fontSize = 5;
         cardText.gameObject.SetActive(true);
         transform.localScale = new Vector3(_orgScale, _orgScale, 1);
-        
+        neighbors.Clear();
         cardText.text = GameManager.J_CHARS[Random.Range(0, GameManager.J_CHARS.Length)].ToString();
         // transform.Rotate(0, 0, 0);
     }
@@ -153,6 +154,7 @@ public class Card : MonoBehaviour
             {
                 cardSprite.sprite = backSprite;
                 cardText.gameObject.SetActive(false);
+                SetLowerLayer(0, 0);
             }
             // if (angle == 180)
             // {
@@ -213,14 +215,14 @@ public class Card : MonoBehaviour
                 if (dest != GameManager.Instance.cardsDest.position) 
                 {
                     _showScale += _stepScale * defaultSpeed;
-                    _textAlpha -= 0.013f * defaultSpeed;
+                    _textAlpha -= Time.deltaTime * defaultSpeed;
                     cardText.CrossFadeAlpha(_textAlpha, 0f, true);
                 }
                 else
                 {
-                    _showScale -= _stepScale * defaultSpeed * 0.7f;
-                    if (_showScale < 0.5f)
-                        _showScale = 0.5f;
+                    _showScale -= _stepScale * defaultSpeed * 0.9f;
+                    if (_showScale < 0.4f)
+                        _showScale = 0.4f;
                 }
                 transform.localScale = new Vector3(_showScale, _showScale, 1);
             }
@@ -257,7 +259,7 @@ public class Card : MonoBehaviour
                 SetUpperLayer();
                 cardText.CrossFadeAlpha(1f, 0f, true);
                 cardText.text = "<b>" + foundWord.phonetic 
-                    + "</b>\n_______\n\n" + foundWord.word + "\n\n" + foundWord.mean;
+                    + "</b>\n_______\n" + foundWord.word + "\n" + foundWord.mean;
                 cardText.fontSize = 1;
                 cardText.alignment = TextAnchor.UpperCenter;
                 yield return new WaitForSeconds(0.5f);

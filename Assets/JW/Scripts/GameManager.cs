@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using System.Linq;
+using DG.Tweening;
+using System;
+
 [System.Serializable]
 public class Word
 {    //these variables are case sensitive and must match the strings "firstName" and "lastName" in the JSON.
@@ -11,6 +14,19 @@ public class Word
     public string word;
     public string phonetic;
     public string mean;
+}
+
+[System.Serializable]
+public class CardInfo
+{
+    public Vector2 pos;
+    public int col;
+
+    public CardInfo(Vector2 _pos, int _col)
+    {
+        pos = _pos;
+        col = _col;
+    }
 }
 
 public class Words
@@ -23,8 +39,8 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 {
     List<string> CORRECT = new List<string> {"すごい！", "まじすごい！", "すばらしい！", "いいね～"};
     List<string> WRONG = new List<string> {"ざんねん～", "がんばって！", "だめだ～"};
-    public const string NOT_J_CHARS = "を";
-    public const string SMALL_J_CHARS = "ゃゅょっ";
+    public const string NOT_J_CHARS = "をっ";
+    public const string SMALL_J_CHARS = "ゃゅょ";
     public const string HARD_J_CHARS = "ばびぶべぼぱぴぷぺぽがぎぐげござじずぜぞだぢづでど";
     public const string J_CHARS = "っあいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわんばびぶべぼぱぴぷぺぽがぎぐげござじずぜぞだぢづでど";
     public TextAsset jsonFile;
@@ -39,6 +55,10 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     public Transform cardsDest;
     public Transform showCardsDest;
     public bool isChallengeMode = true;
+    public Transform wordsShowPos;
+    public GameObject wordsCard;
+    public GameObject mainMenu;
+    public GameObject gameMenu;
     // public bool isCorrectMatch = true;
     public Text toggleText;
     public Text showText;
@@ -51,11 +71,13 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     List<Card> cards = new List<Card>();
     List<Word> words = new List<Word>();
     List<Word> foundedWords = new List<Word>();
+    List<CardInfo> cardInfos = new List<CardInfo>();
     Vector2 cardSize = new Vector2();
     int limitDepth = 0;
     int lastFallIndex = -1;
     string currentString = "";
     int curNode = -1;
+    string _randomedWord = "";
 
     public List<Card> Cards { get => cards; set => cards = value; }
     public bool IsFalling { get => isFalling; set => isFalling = value; }
@@ -64,6 +86,8 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     void Start()
     {
+        DOTween.Init();
+
         AudioManager.Instance.PlayMusic("BGM");
         matchedText.text = "はじめましょう！";
         // GameObject firstCard = CreateCard(startPos.position);
@@ -71,12 +95,64 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         Vector2 bounds = sampleCardSprite.bounds.size;
         cardSize = new Vector2(bounds.x, bounds.y);
 
-        SetupBoard();
         words = ReadWordList();
         limitDepth = 6;
         // limitDepth = MaxLenghtWord();
-        // Debug.Log(limitDepth);
-        FindWords();
+        SetupCardPos();
+    }
+
+    public void StartGame(bool practiceMode=true)
+    {
+        mainMenu.SetActive(false);
+        SetupBoard();
+        matchedText.text = "はじめましょう！";
+        // TODO: Separate mode play
+        if (practiceMode)
+        {
+            FindWords();
+        }
+        else
+        {
+            SetupWord();
+        }
+        
+        wordsCard.transform.DOMove(wordsShowPos.position, 1).SetEase(Ease.OutQuint).OnComplete(
+            () => 
+            {
+                gameMenu.SetActive(true);
+            }
+        );
+    }
+
+    public void SetupWord()
+    {
+        Word randomWord = GetRandom();
+        _randomedWord = randomWord.phonetic;
+        Debug.Log("Random " + _randomedWord);
+        int randomNode = UnityEngine.Random.Range(0, cards.Count);
+        DLSPutWord(randomNode, randomWord.phonetic.Length - 1);
+    }
+
+    Word GetRandom(int numChars=4)
+    {
+        List<Word> randomList = new List<Word>();
+        foreach (Word word in words)
+        {
+            if (word.phonetic != null && word.phonetic.Length <= numChars)
+            {
+                randomList.Add(word);
+            }
+        }
+        return randomList[UnityEngine.Random.Range(0, randomList.Count)];
+    }
+
+    public void BackFromGame(bool practiceMode=true)
+    {
+        gameMenu.SetActive(false);
+        ClearBoard();
+        wordsCard.transform.DOMove(offScrPos.position, 1).SetEase(Ease.OutQuint).OnComplete(
+            () => mainMenu.SetActive(true)
+        );
     }
 
     void Update()
@@ -86,14 +162,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             foreach (Card card in selectedCards)
             {
                 selectStr += card.cardText.text;
-                // card.SetFlip();
-                // if (isCorrectMatch) 
-                // {
-                //     bool _despaw = selectedCards.IndexOf(card) != 0;
-                //     card.SetMatchCorrect(_despaw);
-                // }
-                // else
-                //     card.SetMatchFail();
             }
             Word found = words.Find(w => w.phonetic == selectStr);
             if (found != null) {
@@ -112,7 +180,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                 StartCoroutine(MoveCards(newCards));
                 // newCards.Clear();
                 FindWords(listIndexes);
-                matchedText.text = CORRECT[Random.Range(0, CORRECT.Count)];
+                matchedText.text = CORRECT[UnityEngine.Random.Range(0, CORRECT.Count)];
             }
             else
                 OnWrong();
@@ -125,13 +193,39 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     {
         
         Words words = JsonUtility.FromJson<Words>(jsonFile.text);
-        return words.words;
+        // List<char> chars = new List<char>();
+        // List<char> pchars = new List<char>();
         // foreach (Word word in words.words)
         // {
-        //     Debug.Log("Found word: " + word.word + " - " + word.phonetic + ": " + word.mean);
+        //     string phonetic = word.phonetic;
+        //     // Debug.Log(phonetic);
+        //     if (phonetic != null)
+        //         for (int i = 0; i < phonetic.Length; i++)
+        //         {
+        //             if ((i > 0) && (SMALL_J_CHARS.Contains(phonetic[i]) && !(pchars.Contains(phonetic[i-1]))))
+        //                 {Debug.Log(phonetic);
+        //                 pchars.Add(phonetic[i-1]);}
+
+        //             if (!chars.Contains(phonetic[i]))
+        //                 chars.Add(phonetic[i]);
+        //         }
+        //     // Debug.Log("Found word: " + word.word + " - " + word.phonetic + ": " + word.mean);
         // }
+        // string s = "";
+        // foreach (char c in chars)
+        // {
+        //     s += c;
+        // }
+        // string ps = "";
+        // foreach (char c in pchars)
+        // {
+        //     ps += c;
+        // }
+        // Debug.Log(ps + "\n" + s + "\n" + chars.Count + "\n" + J_CHARS.Length);
+        return words.words;
     }
-    public void SetupBoard()
+
+    void SetupCardPos()
     {
         float posX = 0;
         Vector2 nextPos = (Vector2)startPos.position;
@@ -141,11 +235,19 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             float minus = (col % 2 == 0) ? ((cardSize.y + offset) / 2) : 0;
             int added = (minus == 0) ? 1 : 0;
             for (int row = 0; row < numberRows + added; row++) {
-                CreateCard(nextPos, col);
+                cardInfos.Add(new CardInfo(nextPos, col));
+                // CreateCard(nextPos, col);
                 nextPos = new Vector2(startPos.position.x + posX, nextPos.y + cardSize.y + offset);
             }
             posX += cardSize.x + offset;
             nextPos = new Vector2(startPos.position.x + posX, startPos.position.y - minus);
+		}
+    }
+    public void SetupBoard()
+    {
+        foreach (CardInfo info in cardInfos) 
+		{
+            CreateCard(info.pos, info.col);
 		}
         // Debug.Log(cards);
         lastFallIndex = cards.Count - 1;
@@ -210,17 +312,22 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             ContentMgr.Instance.Despaw(card.gameObject);
         }
         cards.Clear();
-        // foundCards.Clear();
+        foreach (Card card in foundCards)
+        {
+            card.ResetState();
+            ContentMgr.Instance.Despaw(card.gameObject);
+        }
+        foundCards.Clear();
         foundedWords.Clear();
     }
 
     public void ResetGame() {
-        MoveCards(cards, true);
+        // MoveCards(cards, true);
         foreach (Card card in cards)
         {
-            card.cardText.text = J_CHARS[Random.Range(0, J_CHARS.Length)].ToString();
+            card.cardText.text = J_CHARS[UnityEngine.Random.Range(0, J_CHARS.Length)].ToString();
         }
-        MoveCards(cards);
+        // MoveCards(cards);
         // ClearBoard();
         // SetupBoard();
         FindWords();
@@ -314,7 +421,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         foreach (Card card in selectedCards)
             card.SetMatchFail();
         AudioManager.Instance.Shot("Failed");
-        matchedText.text = WRONG[Random.Range(0, WRONG.Count)];
+        matchedText.text = WRONG[UnityEngine.Random.Range(0, WRONG.Count)];
         if (isChallengeMode)
             selectedCards[0].SetFlip();
     }
@@ -326,7 +433,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     Card CreateCard(Vector3 pos, int col, int index=-1) 
     {
         Card card = ContentMgr.Instance.GetItem<Card>("Card", offScrPos.position);
-        card.cardText.text = J_CHARS[Random.Range(0, J_CHARS.Length)].ToString();
+        card.cardText.text = J_CHARS[UnityEngine.Random.Range(0, J_CHARS.Length)].ToString();
         card.transform.SetParent(startPos);
         card.SelfDest = pos;
         card.Column = col + 1;
@@ -384,6 +491,37 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         Debug.Log(strCards);
     }
 
+    (int, bool) DLSPutWord(int node, int depth)
+    {
+        cards[node].IsVisited = true;
+        cards[node].cardText.text = _randomedWord[_randomedWord.Length - depth - 1].ToString();
+        if (depth == 0) 
+        {
+            cards[node].IsVisited = false;
+            return (node, true);
+        }
+        else if (depth > 0)
+        {
+            bool anyRemaining = false;
+            foreach (int neighbor in cards[node].Neighbors)
+            {
+                if (!cards[neighbor].IsVisited) 
+                {
+                    int found;
+                    bool remaining; 
+                    (found, remaining) = DLSPutWord(neighbor, depth-1);
+                    if (found != -1)
+                        return (found, true);   
+                    if (remaining)
+                        anyRemaining = true;   
+                } 
+            }
+            cards[node].IsVisited = false;
+            return (-1, anyRemaining);
+        }
+        return (-1, false);    //(Not found, but may have children)
+    }
+
     (int, bool) DLS(int node, int depth)
     {
         currentString += cards[node].cardText.text;
@@ -435,11 +573,12 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         return (-1, false);    //(Not found, but may have children)
 
     }
-    IEnumerator MoveCards(List<Card> _cards, bool isHide=false) 
+    IEnumerator MoveCards(List<Card> _cards, bool isHide=false, Action onComplete=null) 
     {
         isFalling = true;
         foreach (Card card in _cards) 
         {
+            // Debug.Log(card);
             card.SetUpperLayer();
             if (!isHide)
                 card.MoveToPos(card.SelfDest);
@@ -451,6 +590,10 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         }
         if (_cards != cards)
             _cards.Clear();
+        if (onComplete != null)
+        {
+            onComplete();
+        }
         // isFalling = false;
     }
 }
